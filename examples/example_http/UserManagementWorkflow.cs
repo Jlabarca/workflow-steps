@@ -1,27 +1,25 @@
 using WorkflowFramework;
 namespace WorkflowRestExample;
 
-public class UserManagementWorkflow(MockApiClient apiClient)
+public class UserManagementWorkflow(MockApiClient apiClient) : Workflow
 {
-  private readonly Workflow _workflow = new Workflow();
   public async Task<string> PromoteUserToAdmin(int userId)
   {
     // Step 1: Validate user exists and get basic info
-    var validateUser = _workflow.CreateStep<int, UserDto>(
+    var validateUser = CreateStep<int, UserDto>(
         "Validate User",
-         id => new UserDto(id, "John Doe", "john.doe@example.com"));
-     
+        async id => await apiClient.GetUserAsync(id));
 
-    // Step 2: Get detailed user information
-    var getUserDetails = new GetUserDetailsStep();
+    // Step 2: Get detailed user information - defining a step in its own class
+    var getUserDetails = GetUserDetailsStep.GetStep(this, apiClient);
 
     // Step 3: Update user role
-    var updateRole = _workflow.CreateStep<UserDetailsDto, Task<UpdateRoleResponse>>(
+    var updateRole = CreateStep<UserDetailsDto, UpdateRoleResponse>(
         "Update Role", async details => await apiClient.UpdateUserRoleAsync(details.Id, new UpdateRoleRequest("Admin")));
         
 
     // Step 4: Generate audit log
-    var generateAuditLog = _workflow.CreateStep<(UserDetailsDto Details, UpdateRoleResponse Update), string>(
+    var generateAuditLog = CreateStep<(UserDetailsDto Details, UpdateRoleResponse Update), string>(
         "Generate Audit Log",
         data =>
         {
@@ -33,38 +31,32 @@ public class UserManagementWorkflow(MockApiClient apiClient)
     try
     {
       // Execute workflow
-      var userInfo = validateUser.Execute(userId);
-      var userDetails = await getUserDetails.Execute(userInfo);
-      var updateResult =  await updateRole.Execute(userDetails);
-      var auditLog = generateAuditLog.Execute((userDetails, updateResult));
+      // var userInfo = await validateUser.Execute(userId);
+      // var userDetails = await getUserDetails.Execute(userInfo);
+      // var updateResult =  await updateRole.Execute(userDetails);
+      // var auditLog = await generateAuditLog.Execute((userDetails, updateResult));
 
-      // Print execution history
-      foreach (var step in _workflow.GetExecutionHistory())
-      {
-        var duration = step.CompletedAt.HasValue && step.StartedAt.HasValue
-            ? (step.CompletedAt.Value - step.StartedAt.Value).TotalSeconds
-            : 0;
-
-        Console.WriteLine($"\nStep: {step.Name}");
-        Console.WriteLine($"Status: {step.Status}");
-        Console.WriteLine($"Duration: {duration:F2}s");
-      }
+      var userInfo = await ExecuteStep(validateUser, userId);
+      var userDetails = await ExecuteStep(getUserDetails, userInfo);
+      var updateResult = await ExecuteStep(updateRole, userDetails);
+      var auditLog = await ExecuteStep(generateAuditLog, (userDetails, updateResult));
+      Complete();
 
       return auditLog;
     }
-    catch (Exception ex)
+    catch (Exception)
     {
-      _workflow.LogFailing();
-            throw;
-        }
+      LogHistory();
+    }
+    return null;
   }
 }
-public class GetUserDetailsStep
+public static class GetUserDetailsStep
 {
   private const string StepName = "Get User Details";
-  public static WorkflowStep<UserDto, Task<UserDetailsDto>> GetStep(Workflow workflow, MockApiClient apiClient)
+  public static WorkflowStep<UserDto, UserDetailsDto> GetStep(Workflow workflow, MockApiClient apiClient)
   {
-    return workflow.CreateStep<UserDto, Task<UserDetailsDto>>(
+    return Workflow.CreateStep<UserDto, UserDetailsDto>(
         StepName,
         async user =>
         {

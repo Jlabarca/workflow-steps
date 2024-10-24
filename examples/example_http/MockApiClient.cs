@@ -20,7 +20,7 @@ public class MockApiClient
 
   public async Task<UserDto> GetUserAsync(int userId)
   {
-    await Task.Delay(200); // Simulate network delay
+    await Task.Delay(120); // Simulate network delay
             
     if (!_userDatabase.TryGetValue(userId, out UserDetailsDto? user))
       throw new HttpRequestException("User not found", null, System.Net.HttpStatusCode.NotFound);
